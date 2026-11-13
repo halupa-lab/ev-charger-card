@@ -1,0 +1,198 @@
+<!doctype html>
+<!--
+  Local preview of ev-charger-card without Home Assistant. Open via a local server (preview-ev in
+  /Users/lesyk/halupa-lab/.claude/launch.json) or directly via file:// in a normal browser: the card is a
+  classic script. ha-card and ha-icon are stubs; theme colours approximate the HA default theme.
+  callService / callWS are fakes: services are logged in the console, statistics are made up.
+-->
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EV Card Preview</title>
+<style>
+  :root, [data-theme="dark"] {
+    --primary-background-color: #111111;
+    --card-background-color: #1c1c1c;
+    --secondary-background-color: #282828;
+    --primary-text-color: #e1e1e1;
+    --secondary-text-color: #9b9b9b;
+    --text-primary-color: #ffffff;
+    --divider-color: rgba(225, 225, 225, 0.12);
+    --primary-color: #03a9f4;
+  }
+  [data-theme="light"] {
+    --primary-background-color: #fafafa;
+    --card-background-color: #ffffff;
+    --secondary-background-color: #e5e5e5;
+    --primary-text-color: #212121;
+    --secondary-text-color: #727272;
+    --divider-color: rgba(0, 0, 0, 0.12);
+  }
+  body { margin: 0; padding: 16px; background: var(--primary-background-color); color: var(--primary-text-color); font-family: Roboto, system-ui, sans-serif; }
+  ha-card { display: block; background: var(--card-background-color); border: 1px solid var(--divider-color); border-radius: 12px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+  .bar button { font: inherit; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--divider-color); background: none; color: inherit; cursor: pointer; }
+  .bar button.on { font-weight: bold; border-color: var(--primary-color); }
+  .cards { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+  .cards > div { flex: none; }
+  .cards small { display: block; color: var(--secondary-text-color); margin-bottom: 4px; }
+</style>
+<script>
+  // Stubs must exist before the card builds its DOM.
+  customElements.define('ha-card', class extends HTMLElement {});
+  // Real ha-icon draws an MDI path; this stub does the same with paths from @mdi/js (loaded below).
+  customElements.define('ha-icon', class extends HTMLElement {
+    static get observedAttributes() { return ['icon']; }
+    // Icons live inside the card's shadow root, out of reach of document.querySelectorAll,
+    // so the stub keeps its own list to redraw once the icon paths arrive.
+    connectedCallback() { (window.ICONS ||= new Set()).add(this); this._draw(); }
+    disconnectedCallback() { window.ICONS.delete(this); }
+    attributeChangedCallback() { this._draw(); }
+    _draw() {
+      if (!this.shadowRoot) this.attachShadow({ mode: 'open' });
+      const name = (this.getAttribute('icon') || '').replace(/^mdi:/, '');
+      const key = 'mdi' + name.split('-').map((p) => p[0].toUpperCase() + p.slice(1)).join('');
+      const d = (window.MDI || {})[key] || '';
+      this.shadowRoot.innerHTML = `<svg viewBox="0 0 24 24" style="width:var(--mdc-icon-size,24px);height:var(--mdc-icon-size,24px);fill:currentColor;display:block"><path d="${d}"/></svg>`;
+      if (window.MDI && !d) console.warn('preview: unknown icon', name);
+    }
+  });
+</script>
+<script src="../ev-charger-card.js"></script>
+</head>
+<body>
+<div class="bar" id="scenarios"></div>
+<div class="bar">
+  <button data-theme-btn="dark">Темна</button>
+  <button data-theme-btn="light">Світла</button>
+</div>
+<div class="bar" id="widths"></div>
+<div class="bar">
+  <label><input type="checkbox" id="live"> живі оновлення (новий hass щосекунди, ±10 %)</label>
+</div>
+<div class="cards" id="cards"></div>
+
+<script type="module">
+  window.MDI = await import('https://cdn.jsdelivr.net/npm/@mdi/js@7.4.47/+esm');
+  (window.ICONS || []).forEach((i) => i._draw());
+
+  const CONFIG = { type: 'custom:ev-charger-card', consumption: 20, charge_efficiency: 0.9 };
+
+  // Status texts are what the ElectroS integration reports (Ukrainian state + status_text_en attribute).
+  const STATUS = {
+    0: ['Очікування авто', 'waiting_for_vehicle'],
+    1: ['Авто підключено', 'vehicle_connected_idle'],
+    2: ['Заряджає', 'charging'],
+    4: ['Зарядку заблоковано', 'charging_blocked'],
+  };
+  const inHours = (h) => new Date(Date.now() + h * 3600000).toISOString();
+  const SCENARIOS = {
+    'Чекає авто': { code: 0, night: 'on', hold: 'off', amps: 20 },
+    'Заблоковано таймером': { code: 4, night: 'on', hold: 'off', amps: 6, timer: '23:00–07:00' },
+    'Заряджає вночі': { code: 2, night: 'on', hold: 'off', amps: 20, power: 4380, grid: 4380, battery: 0, solar: 0, a: 19.1, v: 229 },
+    'Вдень: сонце + батарея': { code: 2, night: 'off', hold: 'off', amps: 16, power: 3650, grid: 700, battery: 950, solar: 2000, a: 16.0, v: 228, soc: 63 },
+    'Утримання батареї': { code: 2, night: 'off', hold: 'on', amps: 16, power: 3640, grid: 1640, battery: 0, solar: 2000, a: 15.9, v: 229, soc: 58, holdEnd: inHours(9.5) },
+    'Немає даних Deye': { code: 2, night: 'on', hold: 'off', amps: 20, power: 4370, grid: 4370, battery: 0, solar: 0, a: 19.0, v: 230, deye: false },
+    'Зарядка офлайн': { offline: true, night: 'on', hold: 'off' },
+  };
+  const WIDTHS = [320, 450, 600];
+
+  const st = (state, attributes = {}) => ({ state: String(state), attributes });
+  const hassFor = (s) => {
+    const W = (v) => st(v ?? 'unknown', { unit_of_measurement: 'W' });
+    const off = s.offline;
+    const states = {
+      'sensor.electros_status': off ? st('unavailable') : st(STATUS[s.code][0], { online: true, status_code: String(s.code), status_text_en: STATUS[s.code][1] }),
+      'switch.electros_charging': st(off ? 'unavailable' : s.code === 2 ? 'on' : 'off'),
+      'number.electros_charging_current': st(off ? 'unavailable' : s.amps, { min: 6, max: 32, step: 2, unit_of_measurement: 'A' }),
+      'sensor.electros_set_current': st(off ? 'unavailable' : s.amps, { unit_of_measurement: 'A' }),
+      'sensor.electros_measured_current': st(off ? 'unavailable' : s.a ?? 'unknown', { unit_of_measurement: 'A' }),
+      'sensor.electros_voltage': st(off ? 'unavailable' : s.v ?? 229, { unit_of_measurement: 'V' }),
+      'sensor.electros_timer': st(off ? 'unavailable' : s.timer ?? 'вимкнено'),
+      'sensor.ev_charger_power': W(s.power ?? 0),
+      'sensor.ev_charger_grid_power': W(s.grid ?? 0),
+      'sensor.ev_charger_battery_power': W(s.battery ?? 0),
+      'sensor.ev_charger_solar_power': W(s.solar ?? 0),
+      'sensor.deye_inverter_battery': st(s.deye === false ? 'unavailable' : s.soc ?? 80, { unit_of_measurement: '%' }),
+      'input_boolean.ev_night_mode': st(s.night),
+      'input_boolean.ev_battery_hold': st(s.hold),
+      'timer.ev_battery_hold_limit': s.holdEnd ? st('active', { finishes_at: s.holdEnd }) : st('idle'),
+    };
+    return { states, callService: fakeService, callWS: fakeWS };
+  };
+
+  async function fakeService(domain, service, data) {
+    console.info('callService', `${domain}.${service}`, data);
+  }
+
+  // Statistics: two charging sessions in the 5-minute statistics, and fixed changes for any range.
+  async function fakeWS(msg) {
+    if (msg.type === 'recorder/statistics_during_period') {
+      const rows = [];
+      const now = Date.now();
+      const addSession = (from, to, kwhPer5) => {
+        for (let t = from; t < to; t += 300000) {
+          rows.push({ start: new Date(t).toISOString(), end: new Date(t + 300000).toISOString(), change: kwhPer5 });
+        }
+      };
+      // Last night across midnight (the longest range label: "13.11 23:00 → 14.11 06:10"), and a short one today.
+      const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
+      addSession(midnight - 3600000, midnight.getTime() + 6 * 3600000 + 10 * 60000, 0.36);
+      addSession(now - 3 * 3600000, now - 2 * 3600000, 0.3);
+      return { [msg.statistic_ids[0]]: rows };
+    }
+    if (msg.type === 'recorder/statistic_during_period') {
+      const v = {
+        'sensor.ev_charger_energy': 26.8, 'sensor.ev_charger_solar_energy': 2.1, 'sensor.ev_charger_battery_energy': 0.4,
+        'sensor.ev_charger_grid_night_energy': 21.9, 'sensor.ev_charger_grid_day_energy': 2.4, 'sensor.ev_charger_grid_cost': 72.35,
+      }[msg.statistic_id];
+      return { change: v ?? null };
+    }
+    throw new Error(`preview: unknown WS ${msg.type}`);
+  }
+
+  // One card; the buttons only change its container width, like resizing a dashboard column.
+  const box = document.createElement('div');
+  const label = document.createElement('small');
+  const card = document.createElement('ev-charger-card');
+  card.setConfig(CONFIG);
+  box.append(label, card);
+  document.getElementById('cards').append(box);
+  const setWidth = (w) => {
+    box.style.width = `${w}px`;
+    label.textContent = `${w}px`;
+    document.querySelectorAll('#widths button').forEach((b) => b.classList.toggle('on', Number(b.textContent) === w));
+  };
+  for (const w of WIDTHS) {
+    const b = document.createElement('button');
+    b.textContent = w;
+    b.onclick = () => setWidth(w);
+    document.getElementById('widths').append(b);
+  }
+  setWidth(450);
+
+  // HA passes a NEW hass object on every change; do the same so update paths are exercised.
+  let current = Object.keys(SCENARIOS)[0];
+  const jitter = (v) => (typeof v === 'number' ? Math.round(v * (0.9 + Math.random() * 0.2)) : v);
+  const show = (name, noisy = false) => {
+    current = name;
+    const s = { ...SCENARIOS[name] };
+    if (noisy) for (const k of ['power', 'grid', 'battery', 'solar']) s[k] = jitter(s[k]);
+    card.hass = hassFor(s);
+    document.querySelectorAll('#scenarios button').forEach((b) => b.classList.toggle('on', b.textContent === name));
+  };
+  // Real HA opens the more-info dialog on this event; here it is only logged.
+  document.addEventListener('hass-more-info', (e) => console.info('hass-more-info', e.detail.entityId));
+  setInterval(() => document.getElementById('live').checked && show(current, true), 1000);
+  for (const name of Object.keys(SCENARIOS)) {
+    const b = document.createElement('button');
+    b.textContent = name;
+    b.onclick = () => show(name);
+    document.getElementById('scenarios').append(b);
+  }
+  document.querySelectorAll('[data-theme-btn]').forEach((b) => (b.onclick = () => (document.documentElement.dataset.theme = b.dataset.themeBtn)));
+  show(current);
+</script>
+</body>
+</html>
