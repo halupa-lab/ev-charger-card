@@ -37,6 +37,29 @@ charge_efficiency: 0.9   # share of the wall energy that reaches the car battery
 | `status`, `switch`, `current`, `measured_current`, `set_current`, `voltage` | `sensor.electros_status`, `switch.electros_charging`, `number.electros_charging_current`, `sensor.electros_measured_current`, `sensor.electros_set_current`, `sensor.electros_voltage` | Charger entities |
 | `power`, `solar_power`, `battery_power`, `grid_power` | `sensor.ev_charger_power`, `sensor.ev_charger_solar_power`, … | Car power by source (packages) |
 | `hold`, `hold_timer`, `night`, `battery_soc` | `input_boolean.ev_battery_hold`, `timer.ev_battery_hold_limit`, `input_boolean.ev_night_mode`, `sensor.deye_inverter_battery` | Packages and Deye |
+| `timer`, `clock_offset` | `sensor.electros_timer`, `sensor.electros_clock_offset` | The timer stored in the charger and its clock offset (integration fork) |
+| `charge_now`, `charge_now_flag` | `script.ev_charge_now`, `input_boolean.ev_charge_now` | "Зарядити зараз" (packages v0.4.0+) |
+| `clock_warn` | `60` | Show the charger clock offset above this many seconds |
+
+## Two cards instead of one
+
+`view: charge` (state and controls) and `view: money` (kWh and UAH) as two cards, e.g. in two sections of a sections dashboard: side by side on a computer, one under the other on a phone.
+
+```yaml
+type: sections
+max_columns: 2
+sections:
+  - type: grid
+    cards:
+      - type: custom:ev-charger-card
+        view: charge
+  - type: grid
+    cards:
+      - type: custom:ev-charger-card
+        view: money
+        consumption: 20
+        charge_efficiency: 0.9
+```
 
 ## License
 

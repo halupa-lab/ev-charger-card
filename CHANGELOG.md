@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.2.0
+
+Needs ev-charger-packages v0.4.0 (`script.ev_charge_now`).
+
+- The main button follows the charger: "Зупинити зарядку" while charging, "Зарядити зараз" when a car is plugged in but not charging (calls `script.ev_charge_now`: a one-off charge past the night timer), "Підключіть машину" (disabled) without a car, "Запускаю…" while the script runs. The old "Почати зарядку" sent a start that the charger timer ignores.
+- New state "Машина не підключена". The "charge only at night" line shows the timer that is really in the charger, a one-off charge, and the charger clock offset when it is over 60 s.
+- Switching day / month / year / session keeps the previous numbers (dimmed) until the new ones arrive, and the note line is always reserved: the card no longer jumps.
+- Off toggles are visible in the light theme. The offline hint no longer names the Wi-Fi network.
+
 ## v0.1.0
 
 - The POC card (`reference/www/ev-charger-card.js` 0.3.0) moved to this repository and installed through HACS. Same behaviour as the POC.
