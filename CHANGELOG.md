@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.2.1
+
+- Fix: pressing "+" and then "−" (back to the same current) within a moment sent an empty value, and HA showed "expected float at 'value'". Now nothing is sent when the current did not change.
+
 ## v0.2.0
 
 Needs ev-charger-packages v0.4.0 (`script.ev_charge_now`).

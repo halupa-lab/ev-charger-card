@@ -1,6 +1,6 @@
 /**
  * ev-charger-card — ElectroS EV charger card for Home Assistant, in the style of deye-flow-card.
- * Rebuilt step by step from reference/www/ev-charger-card.js (the POC card). Installed through HACS.
+ * Rebuilt step by step from the POC card 0.3.0. Installed through HACS.
  *
  * view: all (default) | charge | money
  *   charge — charger state, where the car power comes from now, start / stop, charge current, "hold home battery"
@@ -11,7 +11,7 @@
  * halupa-lab/electros-ev-local-ha (v1.8.0+: fixed entity IDs switch.electros_charging, sensor.electros_status, ...).
  * The defaults below are those IDs, so the card YAML can be just: type: custom:ev-charger-card
  */
-const CARD_VERSION = '0.2.0';
+const CARD_VERSION = '0.2.1';
 // Same element as the POC card, which this file replaces: the POC file /local/ev-charger-card.js and its
 // dashboard resource must be removed, or whichever file loads first wins.
 const ELEMENT = 'ev-charger-card';
@@ -592,7 +592,16 @@ class EvChargerCard extends HTMLElement {
     // Several quick clicks = one write to the charger.
     clearTimeout(this._sendTimer);
     this._sendTimer = setTimeout(() => {
-      this._call('number', 'set_value', this._config.current, { value: this._pendingCurrent }).catch((err) =>
+      // _update() clears the pending value when it equals the current one (e.g. "+" then "−" within the
+      // delay), so read it now: nothing pending or nothing changed = nothing to send (sending null failed
+      // with "expected float at 'value'").
+      const value = this._pendingCurrent;
+      if (value == null || value === this._num(this._config.current)) {
+        this._pendingCurrent = null;
+        this._update();
+        return;
+      }
+      this._call('number', 'set_value', this._config.current, { value }).catch((err) =>
         this._setText('mainhint', `Струм не змінено: ${err.message || err}`),
       );
     }, 700);
