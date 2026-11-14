@@ -151,6 +151,19 @@
       addSession(now - 3 * 3600000, now - 2 * 3600000, 0.3);
       return { [msg.statistic_ids[0]]: rows };
     }
+    if (msg.type === 'history/history_during_period') {
+      // The charger switch: the night charge really ran 23:00:04 -> 06:07:42 (inside the 06:05-06:10 bucket).
+      const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
+      const now = Date.now();
+      const at = (ms) => ms / 1000;
+      return { [msg.entity_ids[0]]: [
+        { s: 'off', lu: at(midnight - 3600000 - 600000) },
+        { s: 'on', lu: at(midnight - 3600000 + 4000) },
+        { s: 'off', lu: at(midnight.getTime() + 6 * 3600000 + 7 * 60000 + 42000) },
+        { s: 'on', lu: at(now - 3 * 3600000 + 95000) },
+        { s: 'off', lu: at(now - 2 * 3600000 - 130000) },
+      ] };
+    }
     if (msg.type === 'recorder/statistic_during_period') {
       const v = {
         'sensor.ev_charger_energy': 26.8, 'sensor.ev_charger_solar_energy': 2.1, 'sensor.ev_charger_battery_energy': 0.4,

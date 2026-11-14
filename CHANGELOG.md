@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.3.1
+
+- Session start and end are the real times from the charger switch history, not the 5-minute statistics grid: a timer stop at 06:59:55 showed as "07:05". The kWh and UAH still come from the statistics over the 5-minute range. Without the history (older than 10 days, or the request fails) the card shows the grid times as before.
+- Current hint: the card current "застосується, щойно почнеться зарядка" (packages send it when charging starts), not "коли зарядку запустить HA".
+
 ## v0.3.0
 
 - "Почати зарядку" is the charger's own start, also while the timer waits: a one-off charge now, and the timer stays stored in the charger (it reads as off meanwhile). Before, the button turned "charge only at night" off. Needs packages v0.4.7+, which leave a one-off charge alone and put the timer back once it is over.

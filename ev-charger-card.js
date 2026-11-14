@@ -11,7 +11,7 @@
  * halupa-lab/electros-ev-local-ha (v1.8.0+: fixed entity IDs switch.electros_charging, sensor.electros_status, ...).
  * The defaults below are those IDs, so the card YAML can be just: type: custom:ev-charger-card
  */
-const CARD_VERSION = '0.3.0';
+const CARD_VERSION = '0.3.1';
 // Same element as the POC card, which this file replaces: the POC file /local/ev-charger-card.js and its
 // dashboard resource must be removed, or whichever file loads first wins.
 const ELEMENT = 'ev-charger-card';
@@ -451,7 +451,9 @@ class EvChargerCard extends HTMLElement {
     if (this._period === 'session') {
       const r = this._range();
       if (!r) return this._sessions ? 'Сеансів ще немає' : 'Шукаю сеанси…';
-      const { start, end, session } = r;
+      const { session } = r;
+      const start = session.shownStart || r.start;
+      const end = session.shownEnd || r.end;
       const to = session.ongoing ? 'зараз' : fmtDM(start) === fmtDM(end) ? fmtHM(end) : `${fmtDM(end)} ${fmtHM(end)}`;
       return `${fmtDM(start)} ${fmtHM(start)} → ${to}`;
     }
@@ -510,6 +512,11 @@ class EvChargerCard extends HTMLElement {
       if (cur && start - cur.end <= SESSION_GAP_MIN * 60000) cur.end = end;
       else list.push((cur = { start, end, ongoing: false }));
     }
+    // start / end stay on the 5-minute grid: the kWh and UAH come from statistics over exactly that range.
+    // shownStart / shownEnd are the real times from the charger switch history (10 days in HA by default):
+    // the 5-minute grid turned a 06:59:55 timer stop into "07:05".
+    for (const x of list) Object.assign(x, { shownStart: x.start, shownEnd: x.end });
+    await this._exactTimes(list, now).catch((e) => console.warn(`${ELEMENT}: switch history request failed`, e));
     list.reverse();
     // A session that is still running ends "now" (the newest statistics are up to 5-10 minutes old).
     const p = this._watts(this._config.power) || 0;
@@ -523,6 +530,31 @@ class EvChargerCard extends HTMLElement {
       }
     }
     return list;
+  }
+
+  // The first "on" of the charger switch near a session's first bucket and the last "off" near its last one.
+  async _exactTimes(list, now) {
+    if (!list.length || !this._config.switch) return;
+    const id = this._config.switch;
+    const res = await this._hass.callWS({
+      type: 'history/history_during_period',
+      start_time: new Date(list[0].start.getTime() - 10 * 60000).toISOString(),
+      end_time: now.toISOString(),
+      entity_ids: [id],
+      minimal_response: true,
+      no_attributes: true,
+      significant_changes_only: false,
+    });
+    const changes = (res?.[id] || [])
+      .map((x) => ({ on: x.s === 'on', t: new Date(1000 * (x.lc ?? x.lu)) }))
+      .filter((x) => !Number.isNaN(x.t.getTime()));
+    const B = 5 * 60000;
+    for (const x of list) {
+      const ons = changes.filter((c) => c.on && c.t >= x.start - B && c.t <= x.start.getTime() + B);
+      const offs = changes.filter((c) => !c.on && c.t >= x.end - 2 * B && c.t <= x.end.getTime() + B);
+      if (ons.length) x.shownStart = ons[0].t;
+      if (offs.length) x.shownEnd = offs[offs.length - 1].t;
+    }
   }
 
   async _fetchChanges(start, end) {
@@ -750,7 +782,7 @@ class EvChargerCard extends HTMLElement {
     if (shown != null && real != null && Math.round(real) !== Math.round(shown)) {
       ckw += swOn
         ? `; у зарядці ${Math.round(real)} A, оновлюється`
-        : `; у самій зарядці ${Math.round(real)} A — ${Math.round(shown)} A застосується, коли зарядку запустить HA`;
+        : `; у самій зарядці ${Math.round(real)} A — ${Math.round(shown)} A застосується, щойно почнеться зарядка`;
     }
     this._setText('ckw', ckw);
     const minus = this._el('cminus');
@@ -850,7 +882,7 @@ class EvChargerCard extends HTMLElement {
     const notes = [];
     if (this._error) notes.push('Не вдалося прочитати статистику HA. Спробую ще раз за 5 хв.');
     const r = this._period === 'session' ? this._range() : null;
-    if (r) notes.push(`Тривалість ${fmtDur(r.end - r.start)}${r.session.ongoing ? ', ще триває (цифри оновлюються раз на 5 хв)' : ''}.`);
+    if (r) notes.push(`Тривалість ${fmtDur((r.session.ongoing ? r.end : r.session.shownEnd || r.end) - (r.session.shownStart || r.start))}${r.session.ongoing ? ', ще триває (цифри оновлюються раз на 5 хв)' : ''}.`);
     if (this._period === 'session' && this._sessions && !this._sessions.length) {
       notes.push(`Сеанси шукаються за останні ${SESSION_LOOKBACK_DAYS} днів. Старіші — через День / Міс. / Рік.`);
     }
