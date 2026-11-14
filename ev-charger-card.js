@@ -11,7 +11,7 @@
  * halupa-lab/electros-ev-local-ha (v1.8.0+: fixed entity IDs switch.electros_charging, sensor.electros_status, ...).
  * The defaults below are those IDs, so the card YAML can be just: type: custom:ev-charger-card
  */
-const CARD_VERSION = '0.2.1';
+const CARD_VERSION = '0.3.0';
 // Same element as the POC card, which this file replaces: the POC file /local/ev-charger-card.js and its
 // dashboard resource must be removed, or whichever file loads first wins.
 const ELEMENT = 'ev-charger-card';
@@ -44,8 +44,6 @@ const DEFAULTS = {
   battery_soc: 'sensor.deye_inverter_battery',
   timer: 'sensor.electros_timer',              // the timer stored in the charger (integration fork 1.6+)
   clock_offset: 'sensor.electros_clock_offset', // charger clock minus HA time, s
-  charge_now: 'script.ev_charge_now',          // packages v0.4+: one-off charge past the night timer
-  charge_now_flag: 'input_boolean.ev_charge_now',
   clock_warn: 60,       // s, show the charger clock offset above this
   min_current: 6,       // A, charger minimum
   max_current: 22,      // A, ceiling for the 5x2.5 line with C25 breaker (see working doc)
@@ -350,8 +348,8 @@ class EvChargerCard extends HTMLElement {
         </div>
       </div>
       <div class="crow" id="nrow" hidden>
-        <div class="clabel">Заряджати лише вночі<small id="nsub"></small></div>
-        <button class="tog night" id="ntog" role="switch" aria-checked="false" aria-label="Заряджати лише вночі"></button>
+        <div class="clabel">Заряджати за таймером<small id="nsub"></small></div>
+        <button class="tog night" id="ntog" role="switch" aria-checked="false" aria-label="Заряджати за таймером"></button>
       </div>
       <div class="crow">
         <div class="clabel">Тримати батарею будинку<small id="hsub"></small></div>
@@ -562,9 +560,10 @@ class EvChargerCard extends HTMLElement {
         // The automation would also do this after 2 min; turning it off here gives the battery back at once.
         if (hold && hold.state === 'on') await this._call('input_boolean', 'turn_off', c.hold);
       } else {
-        // The script holds the battery, lifts the night timer if needed and starts charging (it can take a
-        // minute, so turn_on: the call returns at once and the card follows the script state).
-        await this._call('script', 'turn_on', c.charge_now);
+        // "Start" is the charger's own one-off override: it charges at once even while the timer forbids it,
+        // and the timer stays stored (it reads as off meanwhile). The packages (v0.4.7+) put the timer back
+        // once the one-off charge is over, and leave it alone until then.
+        await this._call('switch', 'turn_on', c.switch);
       }
     } catch (err) {
       this._setText('mainhint', `Помилка: ${err.message || err}`);
@@ -632,10 +631,14 @@ class EvChargerCard extends HTMLElement {
     // Charger status codes (integration attribute): 0 no car, 1 car connected, 2 charging, 4 charging forbidden.
     const code = st?.attributes.status_code;
     const noCar = online && code === '0';
-    const nowSt = this._st(c.charge_now);
-    const starting = nowSt?.state === 'on'; // the script is running
-    const oneOff = this._st(c.charge_now_flag)?.state === 'on';
     const waitsForNight = online && !noCar && !charging && nightOn && !isNightHour();
+    // The timer stored in the charger (integration fork). "Start" overrides it: it then reads as off.
+    const tSt = this._st(c.timer);
+    const tKnown = !!tSt && !['unavailable', 'unknown'].includes(tSt.state);
+    const tOn = tKnown && tSt.attributes.enabled === true;
+    const tStart = tOn ? tSt.attributes.start : `${NIGHT_START}:00`;
+    const tEnd = tOn ? tSt.attributes.end : `0${NIGHT_END}:00`;
+    const oneOff = nightOn && tKnown && !tOn;
     // When charging starts or stops, the session list changes.
     if (this._wasCharging !== null && this._wasCharging !== (online && power > c.charging_power)) {
       setTimeout(() => this._refreshStats(), 1000);
@@ -650,13 +653,13 @@ class EvChargerCard extends HTMLElement {
       const parts = [];
       if (amps != null) parts.push(`${amps.toFixed(1)} A`);
       if (volts != null) parts.push(`${Math.round(volts)} V`);
+      if (oneOff) parts.push('разова зарядка');
+      else if (nightOn && tOn) parts.push(`за таймером до ${tEnd}`);
       [head, sub, color, icon] = ['Заряджає', parts.join(', '), COLORS.car, 'mdi:ev-plug-type1'];
     } else if (noCar) {
       [head, sub, color, icon] = ['Машина не підключена', st.state, COLORS.idle, 'mdi:ev-station'];
-    } else if (starting) {
-      [head, sub, color, icon] = ['Запускаю зарядку…', st.state, COLORS.car, 'mdi:ev-plug-type1'];
     } else if (waitsForNight) {
-      [head, sub, color, icon] = ['Чекає нічного тарифу', `${st.state}; почне сама о ${NIGHT_START}:00`, COLORS.night, 'mdi:weather-night'];
+      [head, sub, color, icon] = ['Чекає таймера', `${st.state}; почне сама о ${tStart}`, COLORS.night, 'mdi:timer-outline'];
     } else if (swOn) {
       [head, sub, color, icon] = ['Увімкнено, але не заряджає', st.state, COLORS.idle, 'mdi:ev-station'];
     } else {
@@ -699,38 +702,33 @@ class EvChargerCard extends HTMLElement {
       );
     }
 
-    // Main button
+    // Main button. "Start" is always the charger's start: while the timer waits it is a one-off charge.
     const btn = this._el('mainbtn');
     const busy = Date.now() < this._busyUntil;
-    // Start is not offered without a car (the charger would do nothing) or while the start script runs.
-    const noScript = !swOn && !nowSt;
-    const disabled = !online || busy || (!swOn && (noCar || starting || noScript));
+    const disabled = !online || busy || (!swOn && noCar);
     if (btn.disabled !== disabled) btn.disabled = disabled;
     if (btn.classList.contains('stop') !== swOn) btn.classList.toggle('stop', swOn);
     this._setAttr('mainicon', 'icon', swOn ? 'mdi:stop' : 'mdi:play');
     this._setText(
       'maintext',
-      !online ? 'Зарядка не на зв’язку' : swOn ? 'Зупинити зарядку' : noCar ? 'Підключіть машину' : starting ? 'Запускаю…' : 'Зарядити зараз',
+      !online ? 'Зарядка не на зв’язку'
+        : swOn ? 'Зупинити зарядку'
+          : noCar ? 'Підключіть машину'
+            : 'Почати зарядку',
     );
-    const keep = soc != null ? `батарея будинку лишиться на ${Math.round(soc)} %` : 'батарея будинку не віддаватиме енергію машині';
     let hint = '';
-    if (!online) {
-      hint = '';
-    } else if (swOn) {
-      if (oneOff) hint = 'Разова зарядка: коли закінчиться, «лише вночі» увімкнеться знову.';
-      else if (holdOn) hint = 'Після зупинки межі батареї в інверторі повернуться самі.';
-    } else if (noScript) {
-      hint = `Немає ${c.charge_now}: оновіть пакети ev-charger-packages до v0.4.0.`;
-    } else if (noCar) {
+    if (online && swOn && oneOff) {
+      hint = `Разова зарядка. Коли закінчиться (зупините, витягнете пістолет, машина зарядиться), HA за хвилину поверне таймер.${holdOn ? ' Межі батареї в інверторі теж повернуться самі.' : ''}`;
+    } else if (online && swOn && nightOn && tOn) {
+      hint = `Зупиниться сама о ${tEnd}. У години таймера «Зупинити» зупиняє лише на мить — щоб не заряджати, витягніть пістолет.`;
+    } else if (online && swOn && holdOn) {
+      hint = 'Після зупинки межі батареї в інверторі повернуться самі.';
+    } else if (online && noCar) {
       hint = nightOn && !isNightHour()
-        ? `Зарядка почнеться сама о ${NIGHT_START}:00, якщо машина буде підключена.`
+        ? `Зарядка почнеться сама о ${tStart}, якщо машина буде підключена.`
         : 'Зарядка почнеться сама, щойно підключите машину.';
-    } else if (starting) {
-      hint = 'Знімаю нічний таймер і чекаю, поки зарядка почне. Це до хвилини.';
     } else if (waitsForNight) {
-      hint = `«Зарядити зараз» — разово: ${keep}, а «лише вночі» повернеться після зарядки.`;
-    } else if (!isNightHour()) {
-      hint = `«Зарядити зараз»: ${keep}, машина візьме сонце, решту — з мережі.`;
+      hint = `Почне сама о ${tStart}. «Почати зарядку» — разова зарядка зараз; таймер лишається.`;
     }
     if (!this._el('mainhint').textContent.startsWith('Помилка') && !this._el('mainhint').textContent.startsWith('Струм')) {
       this._setText('mainhint', hint);
@@ -762,23 +760,20 @@ class EvChargerCard extends HTMLElement {
     if (minus.disabled !== offMinus) minus.disabled = offMinus;
     if (plus.disabled !== offPlus) plus.disabled = offPlus;
 
-    // Charge only at night
+    // Charge by the timer
     const nrow = this._el('nrow');
     if (nrow.hidden !== !nightSt) nrow.hidden = !nightSt;
     if (nightSt) {
       this._setAttr('ntog', 'aria-checked', String(nightOn));
-      // What the charger really has: the timer sensor of the integration fork (may be missing on old installs).
-      const tSt = this._st(c.timer);
-      const tOn = tSt?.attributes.enabled;
-      const tKnown = tSt && !['unavailable', 'unknown'].includes(tSt.state);
       let nsub;
-      if (oneOff && !nightOn) nsub = 'вимкнено на разову зарядку, увімкнеться після неї';
-      else if (nightOn) {
+      if (nightOn) {
         nsub = !tKnown
           ? `увімкнено: заряджає ${NIGHT_START}:00–0${NIGHT_END}:00`
           : tOn
-            ? `увімкнено: таймер у зарядці ${tSt.state}, вдень зарядка не почнеться`
-            : 'увімкнено, але таймера в зарядці ще немає — HA зараз поставить';
+            ? `увімкнено: таймер у зарядці ${tSt.state}, в інший час сама не почне`
+            : charging
+              ? 'увімкнено; зараз разова зарядка, таймер повернеться після неї'
+              : 'увімкнено, але таймера в зарядці зараз немає — HA поставить за хвилину';
       } else {
         nsub = tKnown && tOn
           ? `вимкнено, але в зарядці ще таймер ${tSt.state} — HA зараз зніме`
@@ -875,7 +870,7 @@ window.customCards = window.customCards || [];
 window.customCards.push({
   type: ELEMENT,
   name: 'EV Charger Card',
-  description: 'ElectroS EV charger: state, source of power now, start / stop, current, night-only charging, hold home battery, kWh and UAH by source per session / day / month / year (view: all | charge | money)',
+  description: 'ElectroS EV charger: state, source of power now, start / stop, current, charging by the charger timer, hold home battery, kWh and UAH by source per session / day / month / year (view: all | charge | money)',
 });
 
 console.info(`%c ${ELEMENT} ${CARD_VERSION} `, 'background:#f5b400;color:#000;border-radius:3px');

@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.3.0
+
+- "Почати зарядку" is the charger's own start, also while the timer waits: a one-off charge now, and the timer stays stored in the charger (it reads as off meanwhile). Before, the button turned "charge only at night" off. Needs packages v0.4.7+, which leave a one-off charge alone and put the timer back once it is over.
+- "Заряджати лише вночі" is now "Заряджати за таймером". The state line shows "разова зарядка" or "за таймером до 07:00" while charging and "Чекає таймера" before the timer start; hints explain that a stop inside the timer window lasts only a moment (the charger resumes by the timer).
+- No "Зарядити зараз": removed the `charge_now` and `charge_now_flag` options (`script.ev_charge_now` goes away in packages v0.4.8).
+
 ## v0.2.1
 
 - Fix: pressing "+" and then "−" (back to the same current) within a moment sent an empty value, and HA showed "expected float at 'value'". Now nothing is sent when the current did not change.

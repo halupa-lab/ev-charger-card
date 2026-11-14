@@ -1,6 +1,6 @@
 # EV Charger Card
 
-Home Assistant card for an ElectroS WiFi EV charger with a Deye hybrid inverter: charger state, where the car power comes from now (solar / home battery / grid), start / stop, charging current, "charge only at night", "hold home battery", and how much the car took (kWh by source, grid cost in UAH, km estimate) per session, day, month or year.
+Home Assistant card for an ElectroS WiFi EV charger with a Deye hybrid inverter: charger state, where the car power comes from now (solar / home battery / grid), start / stop (start = one-off charge while the timer waits), charging current, "charge by the charger timer", "hold home battery", and how much the car took (kWh by source, grid cost in UAH, km estimate) per session, day, month or year.
 
 One JavaScript file, no build step, no dependencies.
 
@@ -9,7 +9,7 @@ One JavaScript file, no build step, no dependencies.
 ## Requirements
 
 - The ElectroS integration fork [electros-ev-local-ha](https://github.com/halupa-lab/electros-ev-local-ha) v1.8.0+ (fixed entity IDs `switch.electros_charging`, `sensor.electros_status`, …).
-- The packages [ev-charger-packages](https://github.com/halupa-lab/ev-charger-packages): car power by source, kWh and UAH counters, "hold home battery", "charge only at night".
+- The packages [ev-charger-packages](https://github.com/halupa-lab/ev-charger-packages): car power by source, kWh and UAH counters, "hold home battery", "charge by the charger timer" (packages v0.4.7+ for this card version).
 
 ## Install (HACS)
 
@@ -38,7 +38,6 @@ charge_efficiency: 0.9   # share of the wall energy that reaches the car battery
 | `power`, `solar_power`, `battery_power`, `grid_power` | `sensor.ev_charger_power`, `sensor.ev_charger_solar_power`, … | Car power by source (packages) |
 | `hold`, `hold_timer`, `night`, `battery_soc` | `input_boolean.ev_battery_hold`, `timer.ev_battery_hold_limit`, `input_boolean.ev_night_mode`, `sensor.deye_inverter_battery` | Packages and Deye |
 | `timer`, `clock_offset` | `sensor.electros_timer`, `sensor.electros_clock_offset` | The timer stored in the charger and its clock offset (integration fork) |
-| `charge_now`, `charge_now_flag` | `script.ev_charge_now`, `input_boolean.ev_charge_now` | "Зарядити зараз" (packages v0.4.0+) |
 | `clock_warn` | `60` | Show the charger clock offset above this many seconds |
 
 ## Two cards instead of one

@@ -90,11 +90,12 @@
   const NIGHT_TIMER = '23:00–07:00';
   const SCENARIOS = {
     'Машина не підключена': { code: 0, night: 'on', hold: 'off', amps: 20, timer: NIGHT_TIMER },
-    'Чекає ночі (таймер)': { code: 4, night: 'on', hold: 'off', amps: 6, timer: NIGHT_TIMER },
-    'Запускаю…': { code: 4, night: 'off', hold: 'on', amps: 6, timer: NIGHT_TIMER, starting: true, oneOff: true, soc: 61 },
-    'Разова зарядка': { code: 2, night: 'off', hold: 'on', amps: 16, power: 3640, grid: 1640, battery: 0, solar: 2000, a: 15.9, v: 229, soc: 58, holdEnd: inHours(9.5), oneOff: true },
+    'Чекає таймера': { code: 4, night: 'on', hold: 'off', amps: 6, timer: NIGHT_TIMER },
+    'Зупинено вдень': { code: 4, night: 'off', hold: 'off', amps: 16, soc: 58 },
+    'Утримання батареї': { code: 2, night: 'off', hold: 'on', amps: 16, power: 3640, grid: 1640, battery: 0, solar: 2000, a: 15.9, v: 229, soc: 58, holdEnd: inHours(9.5) },
+    'Разова зарядка': { code: 2, night: 'on', hold: 'on', amps: 16, power: 3640, grid: 1640, battery: 0, solar: 2000, a: 15.9, v: 229, soc: 58, holdEnd: inHours(9.5) },
     'Заряджає вночі': { code: 2, night: 'on', hold: 'off', amps: 20, power: 4380, grid: 4380, battery: 0, solar: 0, a: 19.1, v: 229, timer: NIGHT_TIMER },
-    'Вдень без «лише вночі»': { code: 2, night: 'off', hold: 'off', amps: 16, power: 3650, grid: 700, battery: 950, solar: 2000, a: 16.0, v: 228, soc: 63 },
+    'Вдень без таймера': { code: 2, night: 'off', hold: 'off', amps: 16, power: 3650, grid: 700, battery: 950, solar: 2000, a: 16.0, v: 228, soc: 63 },
     'Годинник з’їхав': { code: 4, night: 'on', hold: 'off', amps: 20, timer: NIGHT_TIMER, clock: 245 },
     'Немає даних Deye': { code: 2, night: 'on', hold: 'off', amps: 20, power: 4370, grid: 4370, battery: 0, solar: 0, a: 19.0, v: 230, deye: false, timer: NIGHT_TIMER },
     'Зарядка офлайн': { offline: true, night: 'on', hold: 'off' },
@@ -116,8 +117,6 @@
         ? st(s.timer, { enabled: true, start: s.timer.slice(0, 5), end: s.timer.slice(-5) })
         : st('вимкнено', { enabled: false, start: null, end: null }),
       'sensor.electros_clock_offset': st(off ? 'unavailable' : s.clock ?? 10, { unit_of_measurement: 's' }),
-      'script.ev_charge_now': st(s.starting ? 'on' : 'off'),
-      'input_boolean.ev_charge_now': st(s.oneOff ? 'on' : 'off'),
       'sensor.ev_charger_power': W(s.power ?? 0),
       'sensor.ev_charger_grid_power': W(s.grid ?? 0),
       'sensor.ev_charger_battery_power': W(s.battery ?? 0),
