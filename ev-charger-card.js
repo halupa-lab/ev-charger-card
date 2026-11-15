@@ -11,7 +11,7 @@
  * halupa-lab/electros-ev-local-ha (v1.8.0+: fixed entity IDs switch.electros_charging, sensor.electros_status, ...).
  * The defaults below are those IDs, so the card YAML can be just: type: custom:ev-charger-card
  */
-const CARD_VERSION = '0.3.1';
+const CARD_VERSION = '0.3.2';
 // Same element as the POC card, which this file replaces: the POC file /local/ev-charger-card.js and its
 // dashboard resource must be removed, or whichever file loads first wins.
 const ELEMENT = 'ev-charger-card';
@@ -552,8 +552,11 @@ class EvChargerCard extends HTMLElement {
     for (const x of list) {
       const ons = changes.filter((c) => c.on && c.t >= x.start - B && c.t <= x.start.getTime() + B);
       const offs = changes.filter((c) => !c.on && c.t >= x.end - 2 * B && c.t <= x.end.getTime() + B);
-      if (ons.length) x.shownStart = ons[0].t;
-      if (offs.length) x.shownEnd = offs[offs.length - 1].t;
+      // Rounded to the nearest minute: the charger clock runs a few seconds fast, so its 07:00 timer stop
+      // is 06:59:54 by HA time and showed as "06:59".
+      const toMinute = (d) => new Date(Math.round(d.getTime() / 60000) * 60000);
+      if (ons.length) x.shownStart = toMinute(ons[0].t);
+      if (offs.length) x.shownEnd = toMinute(offs[offs.length - 1].t);
     }
   }
 

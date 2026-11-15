@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.3.2
+
+- Session times are rounded to the nearest minute, not cut: the charger clock runs a few seconds fast, so its 07:00 timer stop (06:59:54 by HA time) showed as "06:59".
+
 ## v0.3.1
 
 - Session start and end are the real times from the charger switch history, not the 5-minute statistics grid: a timer stop at 06:59:55 showed as "07:05". The kWh and UAH still come from the statistics over the 5-minute range. Without the history (older than 10 days, or the request fails) the card shows the grid times as before.
